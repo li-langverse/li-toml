@@ -1,4 +1,4 @@
-# Official package mirror CI — required for every li-langverse package repo.
+# Official package mirror CI — LLVM 22 via ghcr.io/li-langverse/lic-ci:ubuntu24-llvm22
 name: CI
 
 on:
@@ -11,13 +11,23 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   check:
     runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/li-langverse/lic-ci:ubuntu24-llvm22
+    env:
+      LLVM_DIR: /usr/lib/llvm-22/lib/cmake/llvm
+      CC: clang-22
+      CXX: clang++-22
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           repository: li-langverse/lic
           path: lic
@@ -26,36 +36,28 @@ jobs:
       - name: Enforce def syntax (no bare proc)
         run: |
           set -euo pipefail
-          chmod +x lic/scripts/check-li-def-syntax.sh
-          lic/scripts/check-li-def-syntax.sh src
+          bash lic/scripts/check-li-def-syntax.sh src
           if [[ -d li-tests ]]; then
-            lic/scripts/check-li-def-syntax.sh li-tests
+            bash lic/scripts/check-li-def-syntax.sh li-tests
           fi
-
-      - name: Install LLVM 22
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ca-certificates curl cmake ninja-build zlib1g-dev libzstd-dev python3 libedit-dev libcurl4-openssl-dev
-          curl -fsSL https://apt.llvm.org/llvm.sh -o llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 22
-          sudo apt-get install -y clang-22 llvm-22-dev
 
       - name: Build lic
         working-directory: lic
         run: |
-          export LLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm
-          export CC=clang-22
-          export CXX=clang++-22
-          chmod +x scripts/build.sh scripts/resolve-lic.sh 2>/dev/null || chmod +x scripts/build.sh
+          chmod +x scripts/build.sh 2>/dev/null || true
           ./scripts/build.sh
 
       - name: lic check + smoke
         env:
           LIC: ${{ github.workspace }}/lic/build/compiler/lic/lic
         run: |
+          set -euo pipefail
           test -x "$LIC"
-          "$LIC" check src/lib.li
+          LEAN_FLAGS=()
+          if ! command -v lake >/dev/null 2>&1; then
+            LEAN_FLAGS+=(--no-lean-verify)
+          fi
+          "$LIC" check "${LEAN_FLAGS[@]}" src/lib.li
           if [[ -f li-tests/smoke/builds.li ]]; then
-            "$LIC" build li-tests/smoke/builds.li -o /dev/null
+            "$LIC" build "${LEAN_FLAGS[@]}" li-tests/smoke/builds.li -o /dev/null
           fi

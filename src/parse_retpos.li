@@ -1,0 +1,309 @@
+# TOML recursive-descent parser — subset for li-httpd config corpus.
+# Return-position style: each parser function returns the updated cursor
+# position on success, and -1 on failure.
+
+import lexer_retpos
+import std.runtime.seam
+
+def toml_parse_quoted_string(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var p: int = toml_expect_byte(buf, len, pos, 34)
+  if p < 0:
+    return -1
+  pos = p
+  while pos < len:
+    var b: int = net_byte_at_i(buf, pos)
+    if b == 34:
+      return pos + 1
+    if b == 92:
+      if pos + 1 >= len:
+        return -1
+      pos = pos + 2
+    if b != 92:
+      pos = pos + 1
+  return -1
+
+def toml_parse_bare_key(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var start: int = pos
+  while pos < len:
+    if toml_is_bare_key_char(net_byte_at_i(buf, pos)) == 0:
+      if pos == start:
+        return -1
+      return pos
+    pos = pos + 1
+  if pos == start:
+    return -1
+  return pos
+
+def toml_parse_key(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var b: int = toml_peek_byte(buf, len, pos)
+  if b == 34:
+    return toml_parse_quoted_string(buf, len, pos)
+  return toml_parse_bare_key(buf, len, pos)
+
+def toml_parse_int(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var start: int = pos
+  if pos < len:
+    if net_byte_at_i(buf, pos) == 45:
+      pos = pos + 1
+  if pos >= len:
+    return -1
+  if toml_is_digit(net_byte_at_i(buf, pos)) == 0:
+    return -1
+  while pos < len:
+    if toml_is_digit(net_byte_at_i(buf, pos)) == 0:
+      if pos == start:
+        return -1
+      return pos
+    pos = pos + 1
+  return pos
+
+def toml_match_true(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  if pos + 4 > len:
+    return -1
+  if net_byte_at_i(buf, pos) != 116:
+    return -1
+  if net_byte_at_i(buf, pos + 1) != 114:
+    return -1
+  if net_byte_at_i(buf, pos + 2) != 117:
+    return -1
+  if net_byte_at_i(buf, pos + 3) != 101:
+    return -1
+  return pos + 4
+
+def toml_match_false(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  if pos + 5 > len:
+    return -1
+  if net_byte_at_i(buf, pos) != 102:
+    return -1
+  if net_byte_at_i(buf, pos + 1) != 97:
+    return -1
+  if net_byte_at_i(buf, pos + 2) != 108:
+    return -1
+  if net_byte_at_i(buf, pos + 3) != 115:
+    return -1
+  if net_byte_at_i(buf, pos + 4) != 101:
+    return -1
+  return pos + 5
+
+def toml_parse_bool(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var save: int = pos
+  var p: int = toml_match_true(buf, len, pos)
+  if p >= 0:
+    return p
+  pos = save
+  p = toml_match_false(buf, len, pos)
+  if p >= 0:
+    return p
+  return -1
+
+def toml_parse_array(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos + 1
+=
+  var p: int = toml_expect_byte(buf, len, pos, 91)
+  if p < 0:
+    return -1
+  pos = p
+  pos = toml_skip_ws_and_comments(buf, len, pos)
+  if pos < len:
+    if net_byte_at_i(buf, pos) == 93:
+      return pos + 1
+    pos = pos
+  var guard: int = 0
+  while guard < 256:
+    guard = guard + 1
+    p = toml_parse_quoted_string(buf, len, pos)
+    if p < 0:
+      return -1
+    pos = p
+    pos = toml_skip_ws_and_comments(buf, len, pos)
+    if pos < len:
+      if net_byte_at_i(buf, pos) == 93:
+        return pos + 1
+      if net_byte_at_i(buf, pos) == 44:
+        pos = pos + 1
+        pos = toml_skip_ws_and_comments(buf, len, pos)
+        # Trailing comma support: ["x",] (allow comma directly before ']')
+        if pos < len:
+          if net_byte_at_i(buf, pos) == 93:
+            return pos + 1
+    if pos >= len:
+      return -1
+  return -1
+
+def toml_parse_value(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var b: int = toml_peek_byte(buf, len, pos)
+  if b == 34:
+    return toml_parse_quoted_string(buf, len, pos)
+  if b == 91:
+    return toml_parse_array(buf, len, pos)
+  if b == 116:
+    return toml_parse_bool(buf, len, pos)
+  if b == 102:
+    return toml_parse_bool(buf, len, pos)
+  if toml_is_digit(b) == 1:
+    return toml_parse_int(buf, len, pos)
+  if b == 45:
+    return toml_parse_int(buf, len, pos)
+  return -1
+
+def toml_parse_kv_line(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var p: int = toml_parse_key(buf, len, pos)
+  if p < 0:
+    return -1
+  pos = p
+  pos = toml_skip_ws_and_comments(buf, len, pos)
+  p = toml_expect_byte(buf, len, pos, 61)
+  if p < 0:
+    return -1
+  pos = p
+  pos = toml_skip_ws_and_comments(buf, len, pos)
+  p = toml_parse_value(buf, len, pos)
+  if p < 0:
+    return -1
+  pos = p
+  pos = toml_skip_ws_and_comments(buf, len, pos)
+  return pos
+
+def toml_parse_table_header(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var p: int = toml_expect_byte(buf, len, pos, 91)
+  if p < 0:
+    return -1
+  pos = p
+  var start: int = pos
+  while pos < len:
+    if net_byte_at_i(buf, pos) == 93:
+      if pos == start:
+        return -1
+      return pos + 1
+    if toml_is_table_char(net_byte_at_i(buf, pos)) == 0:
+      return -1
+    pos = pos + 1
+  return -1
+
+def toml_parse_document(buf: var ptr, len: var int) raises IO -> int
+  requires true
+  ensures -1 <= result
+  ensures result <= 0
+  decreases len + 1
+=
+  var pos: int = 0
+  var guard: int = 0
+  while guard < len + 64:
+    guard = guard + 1
+    pos = toml_skip_ws_and_comments(buf, len, pos)
+    if pos >= len:
+      return 0
+    var b: int = net_byte_at_i(buf, pos)
+    if b == 91:
+      var next: int = toml_peek_byte(buf, len, pos + 1)
+      if next == 91:
+        var p: int = toml_parse_array_table_header(buf, len, pos)
+        if p < 0:
+          return -1
+        pos = p
+      if next != 91:
+        var p2: int = toml_parse_table_header(buf, len, pos)
+        if p2 < 0:
+          return -1
+        pos = p2
+    if b != 91:
+      var p2: int = toml_parse_kv_line(buf, len, pos)
+      if p2 < 0:
+        return -1
+      pos = p2
+    if pos >= len:
+      return 0
+  return -1
+
+def toml_parse_array_table_header(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  var p: int = toml_expect_byte(buf, len, pos, 91)
+  if p < 0:
+    return -1
+  p = toml_expect_byte(buf, len, p, 91)
+  if p < 0:
+    return -1
+  pos = p
+  var start: int = pos
+  while pos < len:
+    if net_byte_at_i(buf, pos) == 93:
+      if pos == start:
+        return -1
+      if pos + 1 < len:
+        if net_byte_at_i(buf, pos + 1) == 93:
+          return pos + 2
+      return -1
+    if toml_is_table_char(net_byte_at_i(buf, pos)) == 0:
+      return -1
+    pos = pos + 1
+  return -1
+

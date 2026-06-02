@@ -1,0 +1,140 @@
+# TOML lexer helpers (return-position style).
+# These functions return the updated cursor position explicitly,
+# rather than relying on side-effects to `pos`.
+
+import std.runtime.seam
+
+def toml_is_ws(b: int) -> int
+  requires true
+  ensures 0 <= result
+  ensures result <= 1
+  decreases 0
+=
+  if b == 32:
+    return 1
+  if b == 9:
+    return 1
+  if b == 10:
+    return 1
+  if b == 13:
+    return 1
+  return 0
+
+def toml_is_digit(b: int) -> int
+  requires true
+  ensures 0 <= result
+  ensures result <= 1
+  decreases 0
+=
+  if b >= 48:
+    if b <= 57:
+      return 1
+  return 0
+
+def toml_is_bare_key_char(b: int) -> int
+  requires true
+  ensures 0 <= result
+  ensures result <= 1
+  decreases 0
+=
+  if b >= 48:
+    if b <= 57:
+      return 1
+  if b >= 65:
+    if b <= 90:
+      return 1
+  if b >= 97:
+    if b <= 122:
+      return 1
+  if b == 45:
+    return 1
+  if b == 95:
+    return 1
+  return 0
+
+def toml_is_table_char(b: int) -> int
+  requires true
+  ensures 0 <= result
+  ensures result <= 1
+  decreases 0
+=
+  if toml_is_bare_key_char(b) == 1:
+    return 1
+  if b == 46:
+    return 1
+  return 0
+
+def toml_skip_ws(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures 0 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  while pos < len:
+    if toml_is_ws(net_byte_at_i(buf, pos)) == 1:
+      pos = pos + 1
+    if toml_is_ws(net_byte_at_i(buf, pos)) == 0:
+      return pos
+  return pos
+
+def toml_skip_comment(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures 0 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  if pos >= len:
+    return pos
+  if net_byte_at_i(buf, pos) != 35:
+    return pos
+  while pos < len:
+    if net_byte_at_i(buf, pos) == 10:
+      pos = pos + 1
+      return pos
+    pos = pos + 1
+  return pos
+
+def toml_skip_ws_and_comments(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures 0 <= result
+  ensures result <= len
+  decreases len - pos + 1
+=
+  var guard: int = 0
+  while guard < len + 4:
+    guard = guard + 1
+    var start: int = pos
+    pos = toml_skip_ws(buf, len, pos)
+    pos = toml_skip_comment(buf, len, pos)
+    if pos == start:
+      return pos
+  return pos
+
+def toml_expect_byte(buf: var ptr, len: var int, pos: var int, expect: int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= len
+  decreases len - pos
+=
+  if pos >= len:
+    return -1
+  if net_byte_at_i(buf, pos) != expect:
+    return -1
+  pos = pos + 1
+  return pos
+
+def toml_peek_byte(buf: var ptr, len: var int, pos: var int) raises IO -> int
+  requires 0 <= pos
+  requires pos <= len
+  ensures -1 <= result
+  ensures result <= 255
+  decreases 0
+=
+  if pos >= len:
+    return -1
+  return net_byte_at_i(buf, pos)
+

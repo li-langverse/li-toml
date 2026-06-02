@@ -1,0 +1,5 @@
+# Pin lic for reproducible CI (synced from li-httpd sprint).
+[toolchain]
+lic_version = "0.1.0"
+lic_commit = "337573217951eee086f529f1f2452b680a28445c"
+lit_version = "0.1.0"

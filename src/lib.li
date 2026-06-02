@@ -1,0 +1,9 @@
+# li-toml — TOML 1.0 subset parser (Li only).
+# Phase A0: parse li-httpd config corpus; no httpd-specific logic here.
+
+def toml_version() -> int
+  requires true
+  ensures result == 1
+  decreases 0
+=
+  return 1

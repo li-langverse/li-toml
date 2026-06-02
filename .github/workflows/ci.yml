@@ -35,7 +35,12 @@ jobs:
       - name: Install LLVM 22
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build clang-22 llvm-22-dev zlib1g-dev libzstd-dev python3
+          # Ubuntu runners don't ship clang-22 by default; install via apt.llvm.org.
+          sudo apt-get install -y ca-certificates wget gnupg lsb-release software-properties-common
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 22 all
+          sudo apt-get install -y cmake ninja-build zlib1g-dev libzstd-dev python3
 
       - name: Build lic
         working-directory: lic
